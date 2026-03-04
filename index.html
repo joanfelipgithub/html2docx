@@ -318,10 +318,46 @@ async function doConvert(html, filename, statusId, btnId) {
     addHistory(outName, url);
   } catch (e) {
     console.error(e);
+    hideProgress();
     showStatus(statusId, 'error', '❌ ' + e.message);
   } finally {
     setLoading(btn, false);
   }
+}
+
+// ── Progress overlay helpers ──────────────────────────────────────────────────
+function showProgress(msg, pct) {
+  let ov = document.getElementById('__conv-overlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = '__conv-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(14,15,19,0.82);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;backdrop-filter:blur(6px)';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#16181f;border:1px solid #2a2d38;border-radius:16px;padding:28px 36px;min-width:320px;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,.6)';
+    box.innerHTML = `
+      <div style="font-size:1rem;font-weight:600;color:#e8eaf0;margin-bottom:6px" id="__conv-msg">Processing…</div>
+      <div style="font-size:0.8rem;color:#7b7f94;margin-bottom:16px" id="__conv-sub">Please wait</div>
+      <div style="background:#21262d;border-radius:6px;height:8px;overflow:hidden">
+        <div id="__conv-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#4f7fff,#8b5cf6);border-radius:6px;transition:width 0.3s ease"></div>
+      </div>
+      <div style="font-size:0.75rem;color:#4a4e62;margin-top:10px" id="__conv-pct">0%</div>`;
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+  }
+  ov.style.display = 'flex';
+  document.getElementById('__conv-msg').textContent = msg;
+  if (pct !== undefined) {
+    document.getElementById('__conv-bar').style.width = pct + '%';
+    document.getElementById('__conv-pct').textContent = Math.round(pct) + '%';
+  }
+}
+function setProgressSub(sub) {
+  const el = document.getElementById('__conv-sub');
+  if (el) el.textContent = sub;
+}
+function hideProgress() {
+  const ov = document.getElementById('__conv-overlay');
+  if (ov) ov.style.display = 'none';
 }
 
 // ── HTML → DOCX conversion logic ──────────────────
@@ -333,11 +369,16 @@ function colorToHex(c) {
   return null;
 }
 
-function parseHtml(html) {
+// Chunked async parser — yields every CHUNK chars to keep the main thread alive
+async function parseHtml(html) {
+  const CHUNK = 65536; // 64 KB per tick
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
   html = html.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const total = html.length;
   const nodes = [];
   let i = 0;
-  while (i < html.length) {
+  let lastYield = Date.now();
+  while (i < total) {
     if (html[i] === '<') {
       const end = html.indexOf('>', i);
       if (end === -1) { i++; continue; }
@@ -356,7 +397,15 @@ function parseHtml(html) {
       const end = html.indexOf('<', i);
       const text = end === -1 ? html.slice(i) : html.slice(i, end);
       if (text) nodes.push({ type: 'text', text: decodeEntities(text) });
-      i = end === -1 ? html.length : end;
+      i = end === -1 ? total : end;
+    }
+    // Yield every CHUNK characters processed
+    if (i - lastYield >= CHUNK || Date.now() - lastYield > 50) {
+      const pct = 10 + Math.round((i / total) * 30);
+      showProgress('Parsing HTML…', pct);
+      setProgressSub(`${(i / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MB`);
+      await sleep(0);
+      lastYield = i;
     }
   }
   return nodes;
@@ -381,7 +430,8 @@ function decodeEntities(str) {
     .replace(/&nbsp;/g, ' ');
 }
 
-function nodesToDocx(nodes) {
+// Chunked async node processor — yields every CHUNK nodes
+async function nodesToDocx(nodes) {
   // Use window.docx directly to ensure availability
   const { Paragraph, TextRun, Table, TableRow, TableCell,
           HeadingLevel, AlignmentType, BorderStyle, WidthType,
@@ -417,7 +467,18 @@ function nodesToDocx(nodes) {
     currentTexts.push({ text, ...fmt });
   }
 
-  for (const node of nodes) {
+  const CHUNK = 500;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const total = nodes.length;
+  for (let ni = 0; ni < total; ni++) {
+    const node = nodes[ni];
+    // Yield every CHUNK nodes
+    if (ni % CHUNK === 0) {
+      const pct = 42 + Math.round((ni / total) * 40);
+      showProgress('Building document…', pct);
+      setProgressSub(`${ni.toLocaleString()} / ${total.toLocaleString()} nodes`);
+      await sleep(0);
+    }
     if (node.type === 'text') {
       if (inSkip) continue;
       if (inTable) { currentCell.push(node.text); continue; }
@@ -512,7 +573,7 @@ function nodesToDocx(nodes) {
       if (!isOpen) flushParagraph();
       continue;
     }
-  }
+  } // end for ni
 
   flushParagraph();
   return paragraphs;
@@ -521,10 +582,24 @@ function nodesToDocx(nodes) {
 async function convertHtmlToDocx(html) {
   const { Document, Packer, Paragraph, TextRun, LevelFormat, AlignmentType } = window.docx;
 
+  showProgress('Reading file…', 5);
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  await sleep(0);
+
   html = html.replace(/<!DOCTYPE[^>]*>/i, '');
-  const nodes = parseHtml(html);
-  const children = nodesToDocx(nodes);
+
+  showProgress('Parsing HTML…', 10);
+  await sleep(0);
+  const nodes = await parseHtml(html);
+
+  showProgress('Building document…', 42);
+  await sleep(0);
+  const children = await nodesToDocx(nodes);
+
   if (children.length === 0) children.push(new Paragraph({ children: [new TextRun('(empty document)')] }));
+
+  showProgress('Assembling DOCX…', 84);
+  await sleep(0);
 
   const doc = new Document({
     numbering: {
@@ -544,7 +619,13 @@ async function convertHtmlToDocx(html) {
     sections: [{ properties: { page: { size: { width: 12240, height: 15840 }, margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } }, children }]
   });
 
-  return Packer.toBlob(doc);
+  showProgress('Packing DOCX…', 94);
+  await sleep(0);
+  const blob = await Packer.toBlob(doc);
+  showProgress('Done!', 100);
+  await sleep(300);
+  hideProgress();
+  return blob;
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
