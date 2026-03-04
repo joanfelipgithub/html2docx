@@ -309,7 +309,7 @@ async function doConvert(html, filename, statusId, btnId) {
   hideStatus(statusId);
   try {
     const buffer = await convertHtmlToDocx(html);
-    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const blob = buffer; // toBlob() already returns a Blob
     const url = URL.createObjectURL(blob);
     const outName = filename.replace(/\.html?$/i, '') + '.docx';
     const a = document.createElement('a');
@@ -544,7 +544,7 @@ async function convertHtmlToDocx(html) {
     sections: [{ properties: { page: { size: { width: 12240, height: 15840 }, margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } }, children }]
   });
 
-  return Packer.toBuffer(doc);
+  return Packer.toBlob(doc);
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
