@@ -6,7 +6,7 @@
 <title>HTML → DOCX Converter</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/docx@9/build/index.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@9.0.3/build/index.umd.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -131,7 +131,7 @@
 
 <div class="loading-overlay" id="loading-overlay">
   <div class="big-spinner"></div>
-  <p>Loading docx library…</p>
+  <p id="loading-text">Loading docx library…</p>
 </div>
 
 <div class="app">
@@ -214,18 +214,17 @@
 <script>
 // ── Wait for docx UMD to load ──────────────────────────────────────────────────
 let docxReady = false;
-let docxLib = null;
 
 function waitForDocx() {
   return new Promise((resolve, reject) => {
     let tries = 0;
     const check = () => {
-      if (typeof window.docx !== 'undefined') {
-        docxLib = window.docx;
+      // Direct global check for the UMD library
+      if (window.docx) {
         docxReady = true;
         resolve();
-      } else if (++tries > 50) {
-        reject(new Error('docx library failed to load'));
+      } else if (++tries > 100) { // Increased wait time for GitHub Pages (10s)
+        reject(new Error('docx library failed to load. Please refresh.'));
       } else {
         setTimeout(check, 100);
       }
@@ -301,7 +300,10 @@ document.getElementById('btn-convert-paste').addEventListener('click', async () 
 
 // ── Core conversion (browser-side) ───────────────────────────────────────────
 async function doConvert(html, filename, statusId, btnId) {
-  if (!docxReady) { showStatus(statusId, 'error', '⚠️ Library still loading, please wait…'); return; }
+  if (!window.docx) { 
+    showStatus(statusId, 'error', '⚠️ Library not loaded. Please refresh the page.'); 
+    return; 
+  }
   const btn = document.getElementById(btnId);
   setLoading(btn, true);
   hideStatus(statusId);
@@ -322,7 +324,7 @@ async function doConvert(html, filename, statusId, btnId) {
   }
 }
 
-// ── HTML → DOCX conversion logic (ported from converter.js) ──────────────────
+// ── HTML → DOCX conversion logic ──────────────────
 function colorToHex(c) {
   c = (c || '').trim();
   if (c.startsWith('#')) return c.slice(1).padStart(6, '0');
@@ -380,9 +382,10 @@ function decodeEntities(str) {
 }
 
 function nodesToDocx(nodes) {
+  // Use window.docx directly to ensure availability
   const { Paragraph, TextRun, Table, TableRow, TableCell,
           HeadingLevel, AlignmentType, BorderStyle, WidthType,
-          ShadingType, LevelFormat, UnderlineType } = docxLib;
+          ShadingType, LevelFormat, UnderlineType } = window.docx;
 
   const paragraphs = [];
   const stack = [];
@@ -430,7 +433,6 @@ function nodesToDocx(nodes) {
     if (skipTags.has(tagName)) { inSkip = isOpen; continue; }
     if (inSkip) continue;
 
-    // Tables
     if (tagName === 'table') {
       if (isOpen) { flushParagraph(); inTable = true; tableRows = []; }
       else {
@@ -464,7 +466,6 @@ function nodesToDocx(nodes) {
       continue;
     }
 
-    // Block elements
     if (['p','div','section','article'].includes(tagName)) { if (!isOpen) flushParagraph(); continue; }
     if (tagName === 'br') { flushParagraph(); if (!currentTexts.length) paragraphs.push(new Paragraph({ children: [new TextRun('')] })); continue; }
     if (tagName === 'hr') {
@@ -475,7 +476,6 @@ function nodesToDocx(nodes) {
     if (tagName === 'pre') { inPre = isOpen; if (!isOpen) flushParagraph(); continue; }
     if (tagName === 'blockquote') { if (!isOpen) flushParagraph({ paraOpts: { indent: { left: 720 }, spacing: { before: 80, after: 80 } } }); continue; }
 
-    // Headings
     const hMap = { h1:[HeadingLevel.HEADING_1,40], h2:[HeadingLevel.HEADING_2,34], h3:[HeadingLevel.HEADING_3,28], h4:[HeadingLevel.HEADING_4,26], h5:[HeadingLevel.HEADING_5,24], h6:[HeadingLevel.HEADING_6,22] };
     if (hMap[tagName]) {
       if (!isOpen) {
@@ -486,12 +486,10 @@ function nodesToDocx(nodes) {
       continue;
     }
 
-    // Lists
     if (tagName === 'ul') { if (isOpen) { flushParagraph(); listType = 'bullet'; } else { flushParagraph(); listType = null; } continue; }
     if (tagName === 'ol') { if (isOpen) { flushParagraph(); listType = 'number'; } else { flushParagraph(); listType = null; } continue; }
     if (tagName === 'li') { if (!isOpen) flushParagraph(); continue; }
 
-    // Inline
     if (tagName === 'b' || tagName === 'strong') { fmt = { ...fmt, bold: isOpen }; continue; }
     if (tagName === 'i' || tagName === 'em') { fmt = { ...fmt, italic: isOpen }; continue; }
     if (tagName === 'u') { fmt = { ...fmt, underline: isOpen }; continue; }
@@ -510,7 +508,6 @@ function nodesToDocx(nodes) {
       continue;
     }
 
-    // Wrappers
     if (['html','body','main','header','footer','nav','aside','figure','figcaption','form','fieldset','label','a'].includes(tagName)) {
       if (!isOpen) flushParagraph();
       continue;
@@ -522,7 +519,7 @@ function nodesToDocx(nodes) {
 }
 
 async function convertHtmlToDocx(html) {
-  const { Document, Packer, Paragraph, TextRun, LevelFormat, AlignmentType } = docxLib;
+  const { Document, Packer, Paragraph, TextRun, LevelFormat, AlignmentType } = window.docx;
 
   html = html.replace(/<!DOCTYPE[^>]*>/i, '');
   const nodes = parseHtml(html);
@@ -588,7 +585,8 @@ document.getElementById('loading-overlay').classList.add('visible');
 waitForDocx()
   .then(() => document.getElementById('loading-overlay').classList.remove('visible'))
   .catch(e => {
-    document.getElementById('loading-overlay').innerHTML = `<p style="color:var(--error)">❌ Failed to load library. Check your internet connection.</p>`;
+    document.getElementById('loading-text').style.color = 'var(--error)';
+    document.getElementById('loading-text').innerHTML = `❌ Failed to load library. Please check your connection and refresh.`;
   });
 </script>
 </body>
