@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HTML → DOCX Converter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/docx@9/build/index.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0e0f13;
+    --surface: #16181f;
+    --surface2: #1e2029;
+    --border: #2a2d38;
+    --border-bright: #3d4255;
+    --accent: #4f7fff;
+    --accent-glow: rgba(79, 127, 255, 0.18);
+    --accent2: #8b5cf6;
+    --success: #22d3a0;
+    --error: #f87171;
+    --text: #e8eaf0;
+    --text-dim: #7b7f94;
+    --text-dimmer: #4a4e62;
+    --mono: 'DM Mono', monospace;
+    --serif: 'DM Serif Display', serif;
+    --sans: 'DM Sans', sans-serif;
+  }
+
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.6; }
+
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background-image: linear-gradient(rgba(79,127,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(79,127,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px; pointer-events: none; z-index: 0;
+  }
+
+  .app { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 48px 24px 80px; }
+
+  header { text-align: center; margin-bottom: 48px; }
+  .logo-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 10px; }
+  .logo-icon { width: 44px; height: 44px; background: linear-gradient(135deg, var(--accent), var(--accent2)); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; box-shadow: 0 0 24px var(--accent-glow); }
+  h1 { font-family: var(--serif); font-size: 2.2rem; font-weight: 400; letter-spacing: -0.02em; line-height: 1; }
+  .subtitle { font-size: 0.9rem; color: var(--text-dim); font-weight: 300; letter-spacing: 0.03em; }
+
+  .card { width: 100%; max-width: 720px; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; overflow: hidden; box-shadow: 0 4px 40px rgba(0,0,0,0.4); }
+
+  .tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--bg); padding: 0 6px; }
+  .tab { padding: 14px 20px; font-size: 0.85rem; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); cursor: pointer; border: none; background: none; position: relative; transition: color 0.2s; font-family: var(--sans); }
+  .tab::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--accent); transform: scaleX(0); transition: transform 0.2s; }
+  .tab.active { color: var(--text); }
+  .tab.active::after { transform: scaleX(1); }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  .panel { display: none; padding: 28px; }
+  .panel.active { display: block; }
+
+  .dropzone { border: 2px dashed var(--border-bright); border-radius: 14px; padding: 52px 32px; text-align: center; cursor: pointer; transition: all 0.25s; position: relative; overflow: hidden; background: var(--surface2); }
+  .dropzone::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 120%, var(--accent-glow), transparent 70%); opacity: 0; transition: opacity 0.3s; }
+  .dropzone:hover::before, .dropzone.drag-over::before { opacity: 1; }
+  .dropzone.drag-over { border-color: var(--accent); background: rgba(79,127,255,0.06); transform: scale(1.005); }
+  .dz-icon { font-size: 2.8rem; margin-bottom: 14px; display: block; transition: transform 0.3s; }
+  .dropzone:hover .dz-icon { transform: translateY(-4px); }
+  .dropzone.drag-over .dz-icon { transform: scale(1.15); }
+  .dz-title { font-size: 1.05rem; font-weight: 500; margin-bottom: 6px; }
+  .dz-sub { font-size: 0.85rem; color: var(--text-dim); }
+  .dz-or { margin: 18px 0; color: var(--text-dimmer); font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; display: flex; align-items: center; gap: 12px; }
+  .dz-or::before, .dz-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .btn-browse { display: inline-block; padding: 9px 22px; background: var(--surface); border: 1px solid var(--border-bright); border-radius: 8px; font-size: 0.87rem; font-weight: 500; color: var(--text); cursor: pointer; font-family: var(--sans); transition: all 0.2s; }
+  .btn-browse:hover { background: var(--surface2); border-color: var(--accent); color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
+  #file-input { display: none; }
+
+  .file-badge { display: none; margin-top: 18px; padding: 10px 16px; background: rgba(34,211,160,0.08); border: 1px solid rgba(34,211,160,0.25); border-radius: 10px; font-size: 0.85rem; color: var(--success); align-items: center; gap: 8px; }
+  .file-badge.visible { display: flex; }
+  .file-badge .fname { font-family: var(--mono); font-size: 0.82rem; }
+  .file-badge .remove-btn { margin-left: auto; cursor: pointer; opacity: 0.6; transition: opacity 0.2s; background: none; border: none; color: var(--error); font-size: 1rem; line-height: 1; }
+  .file-badge .remove-btn:hover { opacity: 1; }
+
+  .paste-label { font-size: 0.82rem; font-weight: 500; color: var(--text-dim); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 10px; display: block; }
+  textarea { width: 100%; height: 280px; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-family: var(--mono); font-size: 0.82rem; line-height: 1.6; padding: 14px 16px; resize: vertical; transition: border-color 0.2s; outline: none; }
+  textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  textarea::placeholder { color: var(--text-dimmer); }
+
+  .options-row { display: flex; align-items: center; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
+  .input-wrap { flex: 1; min-width: 180px; }
+  .options-label { font-size: 0.78rem; color: var(--text-dim); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px; display: block; }
+  input[type="text"] { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: var(--mono); font-size: 0.85rem; padding: 9px 12px; outline: none; transition: border-color 0.2s; }
+  input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  input[type="text"]::placeholder { color: var(--text-dimmer); }
+
+  .btn-convert { display: flex; align-items: center; gap: 8px; padding: 11px 28px; background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; border-radius: 10px; color: white; font-family: var(--sans); font-size: 0.92rem; font-weight: 600; cursor: pointer; transition: all 0.25s; white-space: nowrap; box-shadow: 0 2px 16px rgba(79,127,255,0.3); }
+  .btn-convert:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(79,127,255,0.45); }
+  .btn-convert:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .btn-convert .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; display: none; }
+  .btn-convert.loading .spinner { display: block; }
+  .btn-convert.loading .btn-label { opacity: 0.7; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .status { margin-top: 20px; padding: 12px 16px; border-radius: 10px; font-size: 0.87rem; display: none; align-items: center; gap: 10px; animation: slideIn 0.25s ease; }
+  @keyframes slideIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .status.visible { display: flex; }
+  .status.error { background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.25); color: var(--error); }
+  .status.success { background: rgba(34,211,160,0.1); border: 1px solid rgba(34,211,160,0.25); color: var(--success); }
+  .download-link { margin-left: auto; font-size: 0.82rem; font-weight: 600; color: inherit; text-decoration: none; padding: 4px 12px; border: 1px solid currentColor; border-radius: 6px; transition: all 0.2s; }
+  .download-link:hover { background: rgba(255,255,255,0.08); }
+
+  .history-empty { text-align: center; padding: 48px 0; color: var(--text-dimmer); font-size: 0.9rem; }
+  .history-empty .empty-icon { font-size: 2.4rem; margin-bottom: 10px; display: block; }
+  .history-list { list-style: none; }
+  .history-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; transition: background 0.2s; }
+  .history-item:hover { background: var(--surface2); }
+  .hi-icon { font-size: 1.4rem; flex-shrink: 0; }
+  .hi-info { flex: 1; overflow: hidden; }
+  .hi-name { font-size: 0.88rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hi-time { font-size: 0.76rem; color: var(--text-dim); }
+  .hi-dl { font-size: 0.78rem; color: var(--accent); text-decoration: none; padding: 4px 10px; border: 1px solid var(--accent); border-radius: 6px; flex-shrink: 0; transition: all 0.2s; }
+  .hi-dl:hover { background: var(--accent-glow); }
+
+  .tips { margin-top: 10px; font-size: 0.78rem; color: var(--text-dimmer); text-align: center; line-height: 1.8; }
+  .tips span { color: var(--text-dim); }
+
+  .loading-overlay { display: none; position: fixed; inset: 0; background: rgba(14,15,19,0.7); z-index: 100; align-items: center; justify-content: center; flex-direction: column; gap: 16px; backdrop-filter: blur(4px); }
+  .loading-overlay.visible { display: flex; }
+  .loading-overlay .big-spinner { width: 48px; height: 48px; border: 3px solid rgba(79,127,255,0.2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  .loading-overlay p { color: var(--text-dim); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<div class="loading-overlay" id="loading-overlay">
+  <div class="big-spinner"></div>
+  <p>Loading docx library…</p>
+</div>
+
+<div class="app">
+  <header>
+    <div class="logo-row">
+      <div class="logo-icon">📄</div>
+      <h1>HTML → DOCX</h1>
+    </div>
+    <p class="subtitle">Convert HTML files to Word-compatible documents — runs entirely in your browser</p>
+  </header>
+
+  <div class="card">
+    <div class="tabs">
+      <button class="tab active" data-tab="drop">📂 Drop File</button>
+      <button class="tab" data-tab="paste">✏️ Paste HTML</button>
+      <button class="tab" data-tab="history">🕐 History</button>
+    </div>
+
+    <div class="panel active" id="tab-drop">
+      <div class="dropzone" id="dropzone">
+        <span class="dz-icon">🗂️</span>
+        <div class="dz-title">Drag & drop your HTML file here</div>
+        <div class="dz-sub">Supports <strong>.html</strong> and <strong>.htm</strong> files</div>
+        <div class="dz-or">or</div>
+        <button class="btn-browse" onclick="event.stopPropagation(); document.getElementById('file-input').click()">Browse files</button>
+        <input type="file" id="file-input" accept=".html,.htm">
+      </div>
+      <div class="file-badge" id="file-badge">
+        <span>✅</span>
+        <span class="fname" id="file-name"></span>
+        <button class="remove-btn" id="remove-file" title="Remove">✕</button>
+      </div>
+      <div class="options-row">
+        <div class="input-wrap">
+          <span class="options-label">Output filename</span>
+          <input type="text" id="filename-drop" placeholder="document (auto from file)" />
+        </div>
+        <div style="padding-top:22px">
+          <button class="btn-convert" id="btn-convert-drop" disabled>
+            <div class="spinner"></div>
+            <span class="btn-label">Convert to DOCX</span>
+          </button>
+        </div>
+      </div>
+      <div class="status" id="status-drop"></div>
+    </div>
+
+    <div class="panel" id="tab-paste">
+      <label class="paste-label" for="html-input">HTML Source</label>
+      <textarea id="html-input" placeholder="Paste your HTML here…&#10;&#10;&lt;h1&gt;My Document&lt;/h1&gt;&#10;&lt;p&gt;Content goes here&lt;/p&gt;&#10;&lt;ul&gt;&#10;  &lt;li&gt;Item one&lt;/li&gt;&#10;  &lt;li&gt;Item two&lt;/li&gt;&#10;&lt;/ul&gt;"></textarea>
+      <div class="options-row">
+        <div class="input-wrap">
+          <span class="options-label">Output filename</span>
+          <input type="text" id="filename-paste" placeholder="document" />
+        </div>
+        <div style="padding-top:22px">
+          <button class="btn-convert" id="btn-convert-paste">
+            <div class="spinner"></div>
+            <span class="btn-label">Convert to DOCX</span>
+          </button>
+        </div>
+      </div>
+      <div class="status" id="status-paste"></div>
+    </div>
+
+    <div class="panel" id="tab-history">
+      <div class="history-empty" id="history-empty">
+        <span class="empty-icon">📭</span>
+        No conversions yet.<br>Convert a file to see it here.
+      </div>
+      <ul class="history-list" id="history-list"></ul>
+    </div>
+  </div>
+
+  <p class="tips">
+    <span>Supported tags:</span> h1–h6 · p · ul/ol · table · b/i/u · hr · blockquote · and more &nbsp;·&nbsp; <span>Runs 100% in your browser · no server · no uploads</span>
+  </p>
+</div>
+
+<script>
+// ── Wait for docx UMD to load ──────────────────────────────────────────────────
+let docxReady = false;
+let docxLib = null;
+
+function waitForDocx() {
+  return new Promise((resolve, reject) => {
+    let tries = 0;
+    const check = () => {
+      if (typeof window.docx !== 'undefined') {
+        docxLib = window.docx;
+        docxReady = true;
+        resolve();
+      } else if (++tries > 50) {
+        reject(new Error('docx library failed to load'));
+      } else {
+        setTimeout(check, 100);
+      }
+    };
+    check();
+  });
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Dropzone ──────────────────────────────────────────────────────────────────
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('file-input');
+const fileBadge = document.getElementById('file-badge');
+const fileNameEl = document.getElementById('file-name');
+const btnDrop = document.getElementById('btn-convert-drop');
+let droppedFile = null;
+
+fileInput.addEventListener('click', e => e.stopPropagation());
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) setFile(file);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+document.getElementById('remove-file').addEventListener('click', e => {
+  e.stopPropagation();
+  droppedFile = null;
+  fileBadge.classList.remove('visible');
+  btnDrop.disabled = true;
+  fileInput.value = '';
+});
+
+function setFile(file) {
+  if (!file.name.match(/\.html?$/i)) {
+    showStatus('status-drop', 'error', '⚠️ Please drop an .html or .htm file');
+    return;
+  }
+  droppedFile = file;
+  fileNameEl.textContent = file.name;
+  fileBadge.classList.add('visible');
+  btnDrop.disabled = false;
+  hideStatus('status-drop');
+  const nameField = document.getElementById('filename-drop');
+  if (!nameField.value) nameField.placeholder = file.name.replace(/\.html?$/i, '');
+}
+
+btnDrop.addEventListener('click', async () => {
+  if (!droppedFile) return;
+  const text = await droppedFile.text();
+  const name = document.getElementById('filename-drop').value || droppedFile.name.replace(/\.html?$/i, '');
+  await doConvert(text, name, 'status-drop', 'btn-convert-drop');
+});
+
+document.getElementById('btn-convert-paste').addEventListener('click', async () => {
+  const html = document.getElementById('html-input').value.trim();
+  if (!html) { showStatus('status-paste', 'error', '⚠️ Please paste some HTML first'); return; }
+  const name = document.getElementById('filename-paste').value || 'document';
+  await doConvert(html, name, 'status-paste', 'btn-convert-paste');
+});
+
+// ── Core conversion (browser-side) ───────────────────────────────────────────
+async function doConvert(html, filename, statusId, btnId) {
+  if (!docxReady) { showStatus(statusId, 'error', '⚠️ Library still loading, please wait…'); return; }
+  const btn = document.getElementById(btnId);
+  setLoading(btn, true);
+  hideStatus(statusId);
+  try {
+    const buffer = await convertHtmlToDocx(html);
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const url = URL.createObjectURL(blob);
+    const outName = filename.replace(/\.html?$/i, '') + '.docx';
+    const a = document.createElement('a');
+    a.href = url; a.download = outName; a.click();
+    showStatus(statusId, 'success', '✅ ' + outName + ' ready!', url, outName);
+    addHistory(outName, url);
+  } catch (e) {
+    console.error(e);
+    showStatus(statusId, 'error', '❌ ' + e.message);
+  } finally {
+    setLoading(btn, false);
+  }
+}
+
+// ── HTML → DOCX conversion logic (ported from converter.js) ──────────────────
+function colorToHex(c) {
+  c = (c || '').trim();
+  if (c.startsWith('#')) return c.slice(1).padStart(6, '0');
+  const m = c.match(/rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/i);
+  if (m) return [m[1], m[2], m[3]].map(n => parseInt(n).toString(16).padStart(2, '0')).join('');
+  return null;
+}
+
+function parseHtml(html) {
+  html = html.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const nodes = [];
+  let i = 0;
+  while (i < html.length) {
+    if (html[i] === '<') {
+      const end = html.indexOf('>', i);
+      if (end === -1) { i++; continue; }
+      const tag = html.slice(i + 1, end);
+      i = end + 1;
+      if (tag.startsWith('!--')) {
+        const ce = html.indexOf('-->', i - tag.length - 2);
+        if (ce !== -1) i = ce + 3;
+        continue;
+      }
+      const isClose = tag.startsWith('/');
+      const tagName = tag.replace(/^\//, '').split(/[\s>]/)[0].toLowerCase();
+      const attrs = parseAttrs(tag);
+      nodes.push({ type: isClose ? 'close' : 'open', tagName, attrs });
+    } else {
+      const end = html.indexOf('<', i);
+      const text = end === -1 ? html.slice(i) : html.slice(i, end);
+      if (text) nodes.push({ type: 'text', text: decodeEntities(text) });
+      i = end === -1 ? html.length : end;
+    }
+  }
+  return nodes;
+}
+
+function parseAttrs(tag) {
+  const attrs = {};
+  const re = /(\w[\w-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+)))?/g;
+  let m;
+  while ((m = re.exec(tag)) !== null) {
+    if (m[1] === tag.split(/[\s/]/)[0]) continue;
+    attrs[m[1].toLowerCase()] = m[2] ?? m[3] ?? m[4] ?? true;
+  }
+  return attrs;
+}
+
+function decodeEntities(str) {
+  return str
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
+    .replace(/&nbsp;/g, ' ');
+}
+
+function nodesToDocx(nodes) {
+  const { Paragraph, TextRun, Table, TableRow, TableCell,
+          HeadingLevel, AlignmentType, BorderStyle, WidthType,
+          ShadingType, LevelFormat, UnderlineType } = docxLib;
+
+  const paragraphs = [];
+  const stack = [];
+  let fmt = { bold: false, italic: false, underline: false, color: null, fontSize: null };
+  let currentTexts = [];
+  let listType = null, listLevel = 0, inPre = false;
+  let inTable = false, tableRows = [], currentRow = [], currentCell = [];
+  let inSkip = false;
+  const skipTags = new Set(['head', 'script', 'style', 'meta', 'link', 'title']);
+
+  function flushParagraph(opts = {}) {
+    if (currentTexts.length === 0 && !opts.forceEmpty) return;
+    const runs = currentTexts.map(t => {
+      const r = { text: t.text, bold: t.bold || false, italics: t.italic || false };
+      if (t.color) r.color = t.color;
+      if (t.fontSize) r.size = t.fontSize * 2;
+      if (t.underline) r.underline = { type: UnderlineType.SINGLE };
+      return new TextRun(r);
+    });
+    const po = { children: runs.length ? runs : [new TextRun({ text: '' })], ...(opts.paraOpts || {}) };
+    if (listType === 'bullet') po.numbering = { reference: 'bullets', level: listLevel };
+    else if (listType === 'number') po.numbering = { reference: 'numbers', level: listLevel };
+    paragraphs.push(new Paragraph(po));
+    currentTexts = [];
+  }
+
+  function pushText(text) {
+    if (!text) return;
+    currentTexts.push({ text, ...fmt });
+  }
+
+  for (const node of nodes) {
+    if (node.type === 'text') {
+      if (inSkip) continue;
+      if (inTable) { currentCell.push(node.text); continue; }
+      let text = node.text;
+      if (!inPre) { text = text.replace(/\n/g, ' ').replace(/\s+/g, ' '); if (!currentTexts.length) text = text.trimStart(); }
+      if (text) pushText(text);
+      continue;
+    }
+
+    const { tagName, type: nodeType } = node;
+    const isOpen = nodeType === 'open';
+
+    if (skipTags.has(tagName)) { inSkip = isOpen; continue; }
+    if (inSkip) continue;
+
+    // Tables
+    if (tagName === 'table') {
+      if (isOpen) { flushParagraph(); inTable = true; tableRows = []; }
+      else {
+        inTable = false;
+        if (tableRows.length > 0) {
+          const colCount = Math.max(...tableRows.map(r => r.length));
+          const colWidth = Math.floor(9360 / Math.max(colCount, 1));
+          const border = { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' };
+          const borders = { top: border, bottom: border, left: border, right: border };
+          paragraphs.push(new Table({
+            width: { size: 9360, type: WidthType.DXA },
+            columnWidths: Array(colCount).fill(colWidth),
+            rows: tableRows.map((row, ri) => new TableRow({
+              children: row.map(cell => new TableCell({
+                borders, width: { size: colWidth, type: WidthType.DXA },
+                shading: ri === 0 ? { fill: 'E8F0FE', type: ShadingType.CLEAR } : undefined,
+                margins: { top: 80, bottom: 80, left: 120, right: 120 },
+                children: [new Paragraph({ children: [new TextRun({ text: cell.join('').trim(), bold: ri === 0 })] })]
+              }))
+            }))
+          }));
+          paragraphs.push(new Paragraph({ children: [] }));
+        }
+        tableRows = []; currentRow = []; currentCell = [];
+      }
+      continue;
+    }
+    if (inTable) {
+      if (tagName === 'tr') { if (!isOpen) { tableRows.push(currentRow); currentRow = []; } }
+      else if (tagName === 'td' || tagName === 'th') { if (isOpen) currentCell = []; else { currentRow.push(currentCell); currentCell = []; } }
+      continue;
+    }
+
+    // Block elements
+    if (['p','div','section','article'].includes(tagName)) { if (!isOpen) flushParagraph(); continue; }
+    if (tagName === 'br') { flushParagraph(); if (!currentTexts.length) paragraphs.push(new Paragraph({ children: [new TextRun('')] })); continue; }
+    if (tagName === 'hr') {
+      flushParagraph();
+      paragraphs.push(new Paragraph({ children: [], border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '888888', space: 1 } }, spacing: { before: 120, after: 120 } }));
+      continue;
+    }
+    if (tagName === 'pre') { inPre = isOpen; if (!isOpen) flushParagraph(); continue; }
+    if (tagName === 'blockquote') { if (!isOpen) flushParagraph({ paraOpts: { indent: { left: 720 }, spacing: { before: 80, after: 80 } } }); continue; }
+
+    // Headings
+    const hMap = { h1:[HeadingLevel.HEADING_1,40], h2:[HeadingLevel.HEADING_2,34], h3:[HeadingLevel.HEADING_3,28], h4:[HeadingLevel.HEADING_4,26], h5:[HeadingLevel.HEADING_5,24], h6:[HeadingLevel.HEADING_6,22] };
+    if (hMap[tagName]) {
+      if (!isOpen) {
+        const [level, size] = hMap[tagName];
+        paragraphs.push(new Paragraph({ heading: level, children: currentTexts.length ? currentTexts.map(t => new TextRun({ text: t.text, bold: true, size, font: 'Calibri' })) : [new TextRun('')], spacing: { before: 240, after: 120 } }));
+        currentTexts = [];
+      }
+      continue;
+    }
+
+    // Lists
+    if (tagName === 'ul') { if (isOpen) { flushParagraph(); listType = 'bullet'; } else { flushParagraph(); listType = null; } continue; }
+    if (tagName === 'ol') { if (isOpen) { flushParagraph(); listType = 'number'; } else { flushParagraph(); listType = null; } continue; }
+    if (tagName === 'li') { if (!isOpen) flushParagraph(); continue; }
+
+    // Inline
+    if (tagName === 'b' || tagName === 'strong') { fmt = { ...fmt, bold: isOpen }; continue; }
+    if (tagName === 'i' || tagName === 'em') { fmt = { ...fmt, italic: isOpen }; continue; }
+    if (tagName === 'u') { fmt = { ...fmt, underline: isOpen }; continue; }
+    if (tagName === 'code' || tagName === 'kbd') {
+      if (isOpen) { stack.push({ ...fmt }); fmt = { ...fmt, fontSize: 10 }; }
+      else { fmt = stack.pop() || fmt; }
+      continue;
+    }
+    if (tagName === 'span') {
+      if (isOpen) {
+        stack.push({ ...fmt });
+        const style = node.attrs.style || '';
+        const cm = style.match(/color\s*:\s*([^;]+)/i);
+        if (cm) { const hex = colorToHex(cm[1]); if (hex) fmt = { ...fmt, color: hex }; }
+      } else { fmt = stack.pop() || fmt; }
+      continue;
+    }
+
+    // Wrappers
+    if (['html','body','main','header','footer','nav','aside','figure','figcaption','form','fieldset','label','a'].includes(tagName)) {
+      if (!isOpen) flushParagraph();
+      continue;
+    }
+  }
+
+  flushParagraph();
+  return paragraphs;
+}
+
+async function convertHtmlToDocx(html) {
+  const { Document, Packer, Paragraph, TextRun, LevelFormat, AlignmentType } = docxLib;
+
+  html = html.replace(/<!DOCTYPE[^>]*>/i, '');
+  const nodes = parseHtml(html);
+  const children = nodesToDocx(nodes);
+  if (children.length === 0) children.push(new Paragraph({ children: [new TextRun('(empty document)')] }));
+
+  const doc = new Document({
+    numbering: {
+      config: [
+        { reference: 'bullets', levels: [{ level: 0, format: LevelFormat.BULLET, text: '•', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] },
+        { reference: 'numbers', levels: [{ level: 0, format: LevelFormat.DECIMAL, text: '%1.', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] }
+      ]
+    },
+    styles: {
+      default: { document: { run: { font: 'Calibri', size: 24 } } },
+      paragraphStyles: [
+        { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { size: 40, bold: true, font: 'Calibri', color: '1F3864' }, paragraph: { spacing: { before: 360, after: 120 }, outlineLevel: 0 } },
+        { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { size: 34, bold: true, font: 'Calibri', color: '2E5090' }, paragraph: { spacing: { before: 280, after: 100 }, outlineLevel: 1 } },
+        { id: 'Heading3', name: 'Heading 3', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { size: 28, bold: true, font: 'Calibri', color: '3C6EB8' }, paragraph: { spacing: { before: 200, after: 80 }, outlineLevel: 2 } },
+      ]
+    },
+    sections: [{ properties: { page: { size: { width: 12240, height: 15840 }, margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } }, children }]
+  });
+
+  return Packer.toBuffer(doc);
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function setLoading(btn, on) { btn.disabled = on; btn.classList.toggle('loading', on); }
+
+function showStatus(id, type, msg, dlUrl, dlName) {
+  const el = document.getElementById(id);
+  el.className = 'status visible ' + type;
+  el.innerHTML = `<span>${msg}</span>`;
+  if (dlUrl) el.innerHTML += `<a class="download-link" href="${dlUrl}" download="${dlName}">↓ Download again</a>`;
+}
+
+function hideStatus(id) { document.getElementById(id).className = 'status'; }
+
+const historyItems = [];
+function addHistory(name, url) { historyItems.unshift({ name, url, time: new Date() }); renderHistory(); }
+function renderHistory() {
+  const empty = document.getElementById('history-empty');
+  const list = document.getElementById('history-list');
+  if (!historyItems.length) { empty.style.display = 'block'; list.innerHTML = ''; return; }
+  empty.style.display = 'none';
+  list.innerHTML = historyItems.map(item => `
+    <li class="history-item">
+      <span class="hi-icon">📄</span>
+      <div class="hi-info">
+        <div class="hi-name">${escHtml(item.name)}</div>
+        <div class="hi-time">${timeAgo(item.time)}</div>
+      </div>
+      <a class="hi-dl" href="${item.url}" download="${escHtml(item.name)}">↓ Download</a>
+    </li>`).join('');
+}
+function timeAgo(date) { const s = Math.floor((Date.now() - date) / 1000); if (s < 5) return 'just now'; if (s < 60) return `${s}s ago`; return `${Math.floor(s / 60)}m ago`; }
+function escHtml(str) { return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+setInterval(renderHistory, 30000);
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.getElementById('loading-overlay').classList.add('visible');
+waitForDocx()
+  .then(() => document.getElementById('loading-overlay').classList.remove('visible'))
+  .catch(e => {
+    document.getElementById('loading-overlay').innerHTML = `<p style="color:var(--error)">❌ Failed to load library. Check your internet connection.</p>`;
+  });
+</script>
+</body>
+</html>
